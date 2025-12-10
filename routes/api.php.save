@@ -1,0 +1,54 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\TurnoController;
+use App\Http\Controllers\Api\InscripcionController;
+use App\Http\Controllers\Api\AlumnoController;
+use App\Http\Controllers\Api\ProfesorController;
+use App\Http\Controllers\Api\NivelController;
+use App\Http\Controllers\Api\RegistroController;
+use App\Http\Controllers\Api\RecuperacionController;
+
+// ============================================
+// RUTAS PÚBLICAS
+// ============================================
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/registro', [RegistroController::class, 'registrar']);
+Route::post('/recuperar-password/verificar', [RecuperacionController::class, 'verificarUsuario']);
+Route::post('/recuperar-password/cambiar', [RecuperacionController::class, 'cambiarPassword']);
+
+// ============================================
+// RUTAS PROTEGIDAS
+// ============================================
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/me', [AuthController::class, 'me']);
+    
+    // Turnos
+    Route::apiResource('turnos', TurnoController::class);
+    Route::get('/turnos/{id}/inscripciones', [TurnoController::class, 'inscripciones']);
+    
+    // Inscripciones
+    Route::post('/inscripciones', [InscripcionController::class, 'store']);
+    Route::delete('/inscripciones/{id}', [InscripcionController::class, 'destroy']);
+    Route::get('/turnos/{turnoId}/inscripciones', [InscripcionController::class, 'getPorTurno']);
+    
+    // Alumnos
+    Route::apiResource('alumnos', AlumnoController::class);
+    Route::get('/alumnos/inasistentes', [AlumnoController::class, 'inasistentes']);
+    
+    // Profesores (ADMIN)
+    Route::apiResource('profesores', ProfesorController::class);
+    
+    // Niveles (ADMIN)
+    Route::apiResource('niveles', NivelController::class);
+    
+    // Gestión de usuarios pendientes (ADMIN)
+    Route::get('/usuarios-pendientes', [RegistroController::class, 'usuariosPendientes']);
+    Route::post('/usuarios/{id}/aprobar', [RegistroController::class, 'aprobarUsuario']);
+    Route::post('/usuarios/{id}/rechazar', [RegistroController::class, 'rechazarUsuario']);
+    
+    // Cambio de contraseña autenticado
+    Route::post('/cambiar-password', [RecuperacionController::class, 'cambiarPasswordAutenticado']);
+});

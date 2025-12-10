@@ -1,0 +1,204 @@
+import { useState, useEffect } from 'react';
+import { Plus, Edit, Trash2, Calendar, Clock } from 'lucide-react';
+import { turnosAPI, turnosAdminAPI } from '../../../services/api';
+import toast from 'react-hot-toast';
+import useThemeStore from '../../../stores/useThemeStore';
+import ModalTurno from './ModalTurno';
+
+export default function GestionTurnos() {
+  const [turnos, setTurnos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [turnoEditar, setTurnoEditar] = useState(null);
+  const theme = useThemeStore((state) => state.theme);
+  const isDark = theme === 'dark';
+
+  useEffect(() => {
+    cargarTurnos();
+  }, []);
+
+  const cargarTurnos = async () => {
+    try {
+      const response = await turnosAPI.getAll();
+      setTurnos(response.data.data || []);
+    } catch (error) {
+      toast.error('Error al cargar turnos');
+    }
+    setLoading(false);
+  };
+
+  const handleEliminar = async (turno) => {
+    if (!confirm(`¿Eliminar el turno del ${turno.dia_semana} ${turno.hora_inicio}-${turno.hora_fin}?`)) return;
+
+    try {
+      await turnosAdminAPI.delete(turno.id);
+      toast.success('Turno eliminado');
+      cargarTurnos();
+    } catch (error) {
+      toast.error('Error al eliminar turno');
+    }
+  };
+
+  const turnosPorDia = turnos.reduce((acc, turno) => {
+    if (!acc[turno.dia_semana]) acc[turno.dia_semana] = [];
+    acc[turno.dia_semana].push(turno);
+    return acc;
+  }, {});
+
+  const diasOrdenados = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+  const nombresDias = {
+    lunes: 'Lunes',
+    martes: 'Martes',
+    miercoles: 'Miércoles',
+    jueves: 'Jueves',
+    viernes: 'Viernes',
+    sabado: 'Sábado',
+    domingo: 'Domingo',
+  };
+
+  if (loading) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
+            Turnos
+          </h2>
+          <p className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+            {turnos.length} registrados
+          </p>
+        </div>
+        <button
+          onClick={() => { setTurnoEditar(null); setModalOpen(true); }}
+          className="flex items-center space-x-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-medium shadow-md"
+        >
+          <Plus size={20} />
+          <span>Nuevo Turno</span>
+        </button>
+      </div>
+
+      {turnos.length === 0 ? (
+        <div className={`rounded-lg shadow p-12 text-center ${
+          isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white'
+        }`}>
+          <Calendar className={`mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} size={48} />
+          <p className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+            No hay turnos registrados
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {diasOrdenados.map(dia => {
+            const turnosDia = turnosPorDia[dia];
+            if (!turnosDia || turnosDia.length === 0) return null;
+
+            return (
+              <div 
+                key={dia} 
+                className={`rounded-lg shadow p-6 ${
+                  isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white'
+                }`}
+              >
+                <h3 className={`text-lg font-bold mb-4 capitalize ${
+                  isDark ? 'text-white' : 'text-gray-800'
+                }`}>
+                  {nombresDias[dia]}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {turnosDia
+                    .sort((a, b) => a.hora_inicio.localeCompare(b.hora_inicio))
+                    .map(turno => (
+                      <div 
+                        key={turno.id} 
+                        className={`rounded-lg p-4 hover:shadow-md transition ${
+                          isDark 
+                            ? 'border border-slate-700 bg-slate-800' 
+                            : 'border border-gray-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center space-x-2">
+                            <Clock size={18} className="text-blue-600" />
+                            <span className={`font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
+                              {turno.hora_inicio} - {turno.hora_fin}
+                            </span>
+                          </div>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            turno.activo 
+                              ? isDark 
+                                ? 'bg-green-900 text-green-300' 
+                                : 'bg-green-100 text-green-700'
+                              : isDark
+                                ? 'bg-gray-800 text-gray-400'
+                                : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {turno.activo ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1 text-sm mb-3">
+                          <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                            <strong>Profesor:</strong> {turno.profesor.nombre_completo}
+                          </p>
+                          {turno.nivel && (
+                            <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                              <strong>Nivel:</strong> {turno.nivel.nombre}
+                            </p>
+                          )}
+                          <p className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+                            <strong>Cupo:</strong> {turno.cupo_maximo} alumnos
+                          </p>
+                          <p className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                            <strong>Disponible:</strong> {turno.cupo_disponible}
+                          </p>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setTurnoEditar(turno); setModalOpen(true); }}
+                            className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded text-sm ${
+                              isDark
+                                ? 'bg-blue-900 hover:bg-blue-800 text-blue-400'
+                                : 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            <Edit size={14} />
+                            <span>Editar</span>
+                          </button>
+                          <button
+                            onClick={() => handleEliminar(turno)}
+                            className={`flex items-center justify-center px-3 py-2 rounded ${
+                              isDark
+                                ? 'bg-red-900 hover:bg-red-800 text-red-400'
+                                : 'bg-red-50 hover:bg-red-100 text-red-700'
+                            }`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modalOpen && (
+        <ModalTurno
+          turno={turnoEditar}
+          onClose={() => { setModalOpen(false); setTurnoEditar(null); }}
+          onSuccess={() => { setModalOpen(false); setTurnoEditar(null); cargarTurnos(); }}
+        />
+      )}
+    </div>
+  );
+}
