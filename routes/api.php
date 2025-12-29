@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\ClienteController;
 use App\Http\Controllers\Api\GestionController;
 use App\Http\Controllers\Api\MensajeriaController;
 use App\Http\Controllers\Api\NotificacionesController;
+use App\Http\Controllers\Api\PiletaController;
+
 
 // ============================================
 // RUTAS PÚBLICAS
@@ -48,6 +50,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inscripciones', [InscripcionController::class, 'store']);
     Route::delete('/inscripciones/{id}', [InscripcionController::class, 'destroy']);
     Route::get('/turnos/{turnoId}/inscripciones', [InscripcionController::class, 'getPorTurno']);
+
+    // ============================================
+// PILETAS (ADMIN)
+// ============================================
+Route::apiResource('piletas', PiletaController::class);
 
     // ============================================
     // ALUMNOS
