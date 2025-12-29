@@ -15,7 +15,7 @@ use App\Http\Controllers\Api\ClienteController;
 use App\Http\Controllers\Api\GestionController;
 use App\Http\Controllers\Api\MensajeriaController;
 use App\Http\Controllers\Api\NotificacionesController;
-use App\Http\Controllers\Api\PiletaController;
+use App\Http\Controllers\Admin\PiletaController;
 use App\Http\Controllers\Api\PerfilController;
 
 // =======================
@@ -124,3 +124,4 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/limpiar-leidas', [NotificacionesController::class, 'limpiarLeidas']);
     });
 });
+
