@@ -18,4 +18,9 @@ class Nivel extends Model
     protected $casts = [
         'activo' => 'boolean',
     ];
+
+    public function turnos()
+    {
+        return $this->hasMany(\App\Models\Turno::class, 'nivel_id');
+    }
 }
