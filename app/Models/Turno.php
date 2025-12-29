@@ -80,4 +80,10 @@ class Turno extends Model
     {
         return $query->where('profesor_id', $profesorId);
     }
+
+    public function pileta()
+{
+    return $this->belongsTo(\App\Models\Pileta::class);
+}
+
 }
