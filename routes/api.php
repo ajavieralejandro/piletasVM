@@ -19,6 +19,10 @@ use App\Http\Controllers\Api\NotificacionesController;
 use App\Http\Controllers\Admin\PiletaController;
 use App\Http\Controllers\Api\PerfilController;
 
+// ✅ NUEVOS controllers (si todavía no existen, después los creamos)
+use App\Http\Controllers\Api\AsistenciaController;
+use App\Http\Controllers\Api\CupoController;
+
 // =======================
 // RUTAS PÚBLICAS
 // =======================
@@ -26,6 +30,10 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/registro', [RegistroController::class, 'registrar']);
 Route::post('/recuperar-password/verificar', [RecuperacionController::class, 'verificarUsuario']);
 Route::post('/recuperar-password/cambiar', [RecuperacionController::class, 'cambiarPassword']);
+
+// ✅ NUEVO: Links desde mail (sin auth) para confirmar/liberar cupo
+Route::get('/cupo/confirmar/{token}', [CupoController::class, 'confirmar']);
+Route::get('/cupo/liberar/{token}', [CupoController::class, 'liberar']);
 
 // =======================
 // RUTAS PROTEGIDAS
@@ -44,8 +52,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // TURNOS
     Route::apiResource('turnos', TurnoController::class);
     Route::get('/turnos/{id}/inscripciones', [TurnoController::class, 'inscripciones']);
+
+    // ✅ NUEVO: turnos agrupados por niveles
+    Route::get('/turnos/por-niveles', [TurnoController::class, 'porNiveles']);
+
+    // ✅ NUEVO (opcional): toggle rápido activo/inactivo
+    Route::patch('/turnos/{id}/toggle-activo', [TurnoController::class, 'toggleActivo']);
+
+    // Excel por turno
     Route::get('/turnos/{turno}/inscriptos/excel', [TurnoExportController::class, 'inscriptosExcel'])
-    ->name('api.turnos.inscriptos.excel');
+        ->name('api.turnos.inscriptos.excel');
 
     // Clases (Modelo A)
     Route::get('/turnos/{id}/clases', [TurnoController::class, 'clases']);
@@ -55,9 +71,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inscripciones', [InscripcionController::class, 'store']);
     Route::delete('/inscripciones/{id}', [InscripcionController::class, 'destroy']);
 
-    // Si tu frontend usa esta ruta vieja, dejala:
-    // Route::get('/turnos/{turnoId}/inscripciones', [InscripcionController::class, 'getPorTurno']);
-
     // PILETAS
     Route::apiResource('piletas', PiletaController::class);
 
@@ -65,11 +78,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('alumnos', AlumnoController::class);
     Route::get('/alumnos/inasistentes', [AlumnoController::class, 'inasistentes']);
 
+    // ✅ NUEVO: actividad/asistencias del alumno (admin)
+    Route::get('/alumnos/{alumno}/asistencias', [AsistenciaController::class, 'historialAlumno']);
+
     // PROFESORES
     Route::apiResource('profesores', ProfesorController::class);
 
     // NIVELES
     Route::apiResource('niveles', NivelController::class);
+
+    // ✅ NUEVO: asistencias (admin genérico)
+    Route::post('/asistencias', [AsistenciaController::class, 'store']);
+    Route::get('/turnos/{turno}/asistencias', [AsistenciaController::class, 'asistenciasPorTurno']);
 
     // GESTION
     Route::prefix('gestion')->group(function () {
@@ -125,6 +145,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/marcar-todas-leidas', [NotificacionesController::class, 'marcarTodasLeidas']);
         Route::delete('/{id}', [NotificacionesController::class, 'eliminar']);
         Route::delete('/limpiar-leidas', [NotificacionesController::class, 'limpiarLeidas']);
+
+        // ✅ NUEVO: enviar notificación de suspensión
+        Route::post('/suspension', [NotificacionesController::class, 'enviarSuspension']);
     });
 });
-

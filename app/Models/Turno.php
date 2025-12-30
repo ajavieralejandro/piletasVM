@@ -13,6 +13,7 @@ class Turno extends Model
 
     protected $fillable = [
         'profesor_id',
+            'pileta_id',   // ✅ FALTA
         'nivel_id',
         'hora_inicio',
         'hora_fin',

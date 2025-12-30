@@ -5,34 +5,43 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Turno;
 use App\Models\Clase;
+use App\Models\Nivel;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class TurnoController extends Controller
 {
+    // ============================
+    // LISTADO DE TURNOS (PLANO)
+    // ============================
     public function index(Request $request)
     {
         $query = Turno::with(['profesor', 'nivel', 'pileta']);
 
-        if ($request->has('dia_semana')) {
+        if ($request->filled('dia_semana')) {
             $query->where('dia_semana', $request->dia_semana);
         }
 
-        if ($request->has('dias')) {
+        if ($request->filled('dias')) {
             $dias = explode(',', $request->dias);
             $query->whereIn('dia_semana', $dias);
         }
 
-        if ($request->has('profesor_id')) {
+        if ($request->filled('profesor_id')) {
             $query->where('profesor_id', $request->profesor_id);
         }
 
-        if ($request->has('nivel_id')) {
+        if ($request->filled('nivel_id')) {
             $query->where('nivel_id', $request->nivel_id);
         }
 
-        if ($request->has('pileta_id')) {
+        if ($request->filled('pileta_id')) {
             $query->where('pileta_id', $request->pileta_id);
+        }
+
+        if ($request->filled('solo_activos')) {
+            $soloActivos = filter_var($request->solo_activos, FILTER_VALIDATE_BOOLEAN);
+            $query->where('activo', $soloActivos);
         }
 
         $turnos = $query->get();
@@ -43,10 +52,10 @@ class TurnoController extends Controller
                 return [
                     'id' => $turno->id,
 
-                    'profesor' => [
+                    'profesor' => $turno->profesor ? [
                         'id' => $turno->profesor->id,
                         'nombre_completo' => $turno->profesor->nombre_completo,
-                    ],
+                    ] : null,
 
                     'nivel' => $turno->nivel ? [
                         'id' => $turno->nivel->id,
@@ -60,8 +69,8 @@ class TurnoController extends Controller
                     ] : null,
 
                     'dia_semana' => $turno->dia_semana,
-                    'hora_inicio' => $turno->hora_inicio->format('H:i'),
-                    'hora_fin' => $turno->hora_fin->format('H:i'),
+                    'hora_inicio' => optional($turno->hora_inicio)->format('H:i'),
+                    'hora_fin' => optional($turno->hora_fin)->format('H:i'),
                     'cupo_maximo' => $turno->cupo_maximo,
                     'cupo_disponible' => $turno->cupo_disponible,
                     'esta_completo' => $turno->esta_completo,
@@ -71,6 +80,84 @@ class TurnoController extends Controller
         ]);
     }
 
+    // ============================
+    // LISTADO AGRUPADO POR NIVELES ✅
+    // ============================
+    public function porNiveles(Request $request)
+    {
+        $niveles = Nivel::query()
+            ->with(['turnos' => function ($q) use ($request) {
+                $q->with(['profesor', 'nivel', 'pileta'])
+                  ->withCount(['inscripciones as inscriptos_activos_count' => function ($qq) {
+                      $qq->where('estado', 'activo');
+                  }])
+                  ->orderBy('dia_semana')
+                  ->orderBy('hora_inicio');
+
+                if ($request->filled('pileta_id')) {
+                    $q->where('pileta_id', $request->pileta_id);
+                }
+                if ($request->filled('profesor_id')) {
+                    $q->where('profesor_id', $request->profesor_id);
+                }
+                if ($request->filled('dias')) {
+                    $dias = explode(',', $request->dias);
+                    $q->whereIn('dia_semana', $dias);
+                }
+                if ($request->filled('solo_activos')) {
+                    $soloActivos = filter_var($request->solo_activos, FILTER_VALIDATE_BOOLEAN);
+                    $q->where('activo', $soloActivos);
+                }
+            }])
+            ->orderBy('id') // si tenés campo "orden" en niveles, poné ->orderBy('orden')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $niveles->map(function ($nivel) {
+                return [
+                    'id' => $nivel->id,
+                    'nombre' => $nivel->nombre,
+                    'turnos' => $nivel->turnos->map(function ($turno) {
+                        $insc = (int)($turno->inscriptos_activos_count ?? 0);
+                        $cupoDisp = (int)$turno->cupo_maximo - $insc;
+
+                        return [
+                            'id' => $turno->id,
+                            'dia_semana' => $turno->dia_semana,
+                            'hora_inicio' => optional($turno->hora_inicio)->format('H:i'),
+                            'hora_fin' => optional($turno->hora_fin)->format('H:i'),
+                            'cupo_maximo' => $turno->cupo_maximo,
+                            'inscriptos_activos' => $insc,
+                            'cupo_disponible' => $cupoDisp,
+                            'esta_completo' => $cupoDisp <= 0,
+                            'activo' => $turno->activo,
+
+                            'profesor' => $turno->profesor ? [
+                                'id' => $turno->profesor->id,
+                                'nombre_completo' => $turno->profesor->nombre_completo,
+                            ] : null,
+
+                            'nivel' => $turno->nivel ? [
+                                'id' => $turno->nivel->id,
+                                'nombre' => $turno->nivel->nombre,
+                            ] : null,
+
+                            'pileta' => $turno->pileta ? [
+                                'id' => $turno->pileta->id,
+                                'nombre' => $turno->pileta->nombre,
+                                'activa' => $turno->pileta->activa,
+                            ] : null,
+                        ];
+                    }),
+                ];
+            }),
+        ]);
+    }
+
+    // ============================
+    // CREAR TURNO
+    // ============================
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -83,7 +170,6 @@ class TurnoController extends Controller
             'dia_semana' => 'required|in:lunes,martes,miercoles,jueves,viernes,sabado,domingo',
         ]);
 
-        // Validación anti-solapamiento (misma pileta + mismo día)
         $solapa = Turno::where('dia_semana', $validated['dia_semana'])
             ->where('pileta_id', $validated['pileta_id'])
             ->whereNull('deleted_at')
@@ -111,6 +197,9 @@ class TurnoController extends Controller
         ], 201);
     }
 
+    // ============================
+    // ACTUALIZAR TURNO (incluye activo/inactivo)
+    // ============================
     public function update(Request $request, $id)
     {
         $turno = Turno::findOrFail($id);
@@ -126,10 +215,22 @@ class TurnoController extends Controller
             'activo' => 'sometimes|boolean',
         ]);
 
+        // Validación de cupo: no bajar por debajo de inscriptos activos
+        if (array_key_exists('cupo_maximo', $validated)) {
+            $inscriptos = $turno->inscripciones()->where('estado', 'activo')->count();
+            if ((int)$validated['cupo_maximo'] < (int)$inscriptos) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No podés bajar el cupo por debajo de los inscriptos activos.',
+                    'data' => ['inscriptos_activos' => $inscriptos],
+                ], 422);
+            }
+        }
+
         $dia = $validated['dia_semana'] ?? $turno->dia_semana;
         $piletaId = $validated['pileta_id'] ?? $turno->pileta_id;
-        $inicio = $validated['hora_inicio'] ?? $turno->hora_inicio->format('H:i');
-        $fin = $validated['hora_fin'] ?? $turno->hora_fin->format('H:i');
+        $inicio = $validated['hora_inicio'] ?? optional($turno->hora_inicio)->format('H:i');
+        $fin = $validated['hora_fin'] ?? optional($turno->hora_fin)->format('H:i');
 
         if (isset($validated['hora_inicio']) || isset($validated['hora_fin']) || isset($validated['dia_semana']) || isset($validated['pileta_id'])) {
 
@@ -167,6 +268,23 @@ class TurnoController extends Controller
         ]);
     }
 
+    // Toggle dedicado (opcional)
+    public function toggleActivo($id)
+    {
+        $turno = Turno::findOrFail($id);
+        $turno->activo = !$turno->activo;
+        $turno->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Estado del turno actualizado',
+            'data' => [
+                'id' => $turno->id,
+                'activo' => $turno->activo,
+            ],
+        ]);
+    }
+
     public function destroy($id)
     {
         $turno = Turno::findOrFail($id);
@@ -188,8 +306,8 @@ class TurnoController extends Controller
                 'turno' => [
                     'id' => $turno->id,
                     'dia_semana' => $turno->dia_semana,
-                    'hora_inicio' => $turno->hora_inicio->format('H:i'),
-                    'hora_fin' => $turno->hora_fin->format('H:i'),
+                    'hora_inicio' => optional($turno->hora_inicio)->format('H:i'),
+                    'hora_fin' => optional($turno->hora_fin)->format('H:i'),
                     'activo' => $turno->activo,
                     'pileta' => $turno->pileta ? [
                         'id' => $turno->pileta->id,
@@ -199,20 +317,20 @@ class TurnoController extends Controller
                         'id' => $turno->nivel->id,
                         'nombre' => $turno->nivel->nombre,
                     ] : null,
-                    'profesor' => [
+                    'profesor' => $turno->profesor ? [
                         'id' => $turno->profesor->id,
                         'nombre_completo' => $turno->profesor->nombre_completo,
-                    ],
+                    ] : null,
                 ],
                 'inscripciones' => $turno->inscripciones->map(function ($inscripcion) {
                     return [
                         'id' => $inscripcion->id,
-                        'alumno' => [
+                        'alumno' => $inscripcion->alumno ? [
                             'id' => $inscripcion->alumno->id,
                             'nombre_completo' => $inscripcion->alumno->nombre_completo,
                             'dni' => $inscripcion->alumno->dni,
                             'telefono' => $inscripcion->alumno->telefono,
-                        ],
+                        ] : null,
                         'estado' => $inscripcion->estado,
                         'pase_libre' => $inscripcion->pase_libre,
                         'fecha_inscripcion' => $inscripcion->fecha_inscripcion,
@@ -225,7 +343,6 @@ class TurnoController extends Controller
     // ============================
     // CLASES (Modelo A)
     // ============================
-
     public function clases($id)
     {
         $turno = Turno::with(['clases' => function ($q) {
