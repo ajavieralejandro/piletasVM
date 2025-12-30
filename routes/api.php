@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Admin\TurnoExportController;
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\RegistroController;
@@ -43,6 +44,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // TURNOS
     Route::apiResource('turnos', TurnoController::class);
     Route::get('/turnos/{id}/inscripciones', [TurnoController::class, 'inscripciones']);
+    Route::get('/turnos/{turno}/inscriptos/excel', [TurnoExportController::class, 'inscriptosExcel'])
+    ->name('api.turnos.inscriptos.excel');
 
     // Clases (Modelo A)
     Route::get('/turnos/{id}/clases', [TurnoController::class, 'clases']);
