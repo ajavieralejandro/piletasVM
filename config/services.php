@@ -27,6 +27,10 @@ return [
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
+    'internal_bridge' => [
+    'key' => env('PILETAS_INTERNAL_KEY'),
+],
+
 
     'slack' => [
         'notifications' => [
