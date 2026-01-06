@@ -5,55 +5,33 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
-class PullAlumnosFromVmServer extends Command
+class PullPadronFromVmServer extends Command
 {
-    protected $signature = 'vmserver:pull-alumnos
-        {--chunk=1000}
-        {--dry-run : No escribe, solo muestra conteos}
-        {--solo-con-estado=0 : Filtra solo si estado_socio NO es null/vacio (opcional)}';
-
-    protected $description = 'Trae usuarios desde vmserver_db.users hacia vmpiletas_db.users (upsert por dni).';
+    protected $signature = 'vmserver:pull-padron {--chunk=1000} {--dry-run}';
+    protected $description = 'Trae vmserver_db.socios_padron a vmpiletas_db.socios_padron (upsert por dni).';
 
     public function handle(): int
     {
         $chunk = (int) $this->option('chunk') ?: 1000;
         $dryRun = (bool) $this->option('dry-run');
-        $soloConEstado = (string) $this->option('solo-con-estado') === '1';
 
-        $this->info("Pull desde vmserver_db -> piletas. chunk={$chunk}, soloConEstado=" . ($soloConEstado ? 'SI' : 'NO') . ", dryRun=" . ($dryRun ? 'SI' : 'NO'));
+        $this->info("Pull padrón socios_padron desde vmserver_db -> piletas. chunk={$chunk}, dryRun=" . ($dryRun ? 'SI' : 'NO'));
 
-        // ✅ ORIGEN: vmserver_db.users (conexion 'usuarios')
-        // No existe tipo_usuario ni activo en origen, así que NO filtramos por eso.
-        $q = DB::connection('usuarios')->table('users')
+        $q = DB::connection('usuarios')->table('socios_padron')
             ->select([
-                'id',
-                'dni',
-                'nombre',
-                'apellido',
-                'telefono',
-                'email',
-                'socio_id',
-                'barcode',
-                'estado_socio',
+                'id','dni','sid','apynom','barcode','saldo','semaforo','ult_impago','acceso_full','hab_controles','raw','created_at','updated_at'
             ])
-            ->whereNotNull('dni')
-            ->where('dni', '<>', '');
-
-        if ($soloConEstado) {
-            $q->whereNotNull('estado_socio')->where('estado_socio', '<>', '');
-        }
+            ->orderBy('id');
 
         $total = (clone $q)->count();
-        $this->line("Total candidatos en origen: {$total}");
+        $this->line("Total origen: {$total}");
 
         $lastId = 0;
         $upserts = 0;
-        $saltadosSinDni = 0;
 
         while (true) {
             $rows = (clone $q)
                 ->where('id', '>', $lastId)
-                ->orderBy('id')
                 ->limit($chunk)
                 ->get();
 
@@ -65,46 +43,20 @@ class PullAlumnosFromVmServer extends Command
                 $lastId = $r->id;
 
                 $dni = trim((string)($r->dni ?? ''));
-                if ($dni === '') {
-                    $saltadosSinDni++;
-                    continue;
-                }
-
-                $nombre = trim((string)($r->nombre ?? ''));
-                $apellido = trim((string)($r->apellido ?? ''));
-
-                // fallback por si vienen vacíos
-                if ($nombre === '' && $apellido === '') {
-                    $nombre = 'Socio';
-                    $apellido = $dni;
-                }
+                if ($dni === '') continue;
 
                 $payload[] = [
-                    // clave
-                    'dni' => $dni,
-
-                    // datos básicos
-                    'nombre' => $nombre,
-                    'apellido' => $apellido,
-                    'telefono' => $r->telefono ?? '',
-                    'email' => $r->email ?? null,
-
-                    // ✅ DESTINO (piletas) define "alumno"
-                    'tipo_usuario' => 'cliente',
-                    'tipo_cliente' => 'normal',
-                    'activo' => true,
-
-                    // ✅ puente para tus campos padron en piletas (ya los tenés)
-                    'socio_sid' => $r->socio_id !== null ? (string)$r->socio_id : null,
-                    'socio_barcode' => $r->barcode !== null ? (string)$r->barcode : null,
-
-                    // opcional: si querés guardar algo del estado (no lo estamos usando)
-                    // 'socio_hab_controles' => null,
-
-                    // password local (no copiamos la del origen)
-                    'password' => bcrypt($dni),
-
-                    'created_at' => now(),
+                    'dni' => (string)$r->dni,
+                    'sid' => $r->sid !== null ? (string)$r->sid : null,
+                    'apynom' => $r->apynom,
+                    'barcode' => $r->barcode,
+                    'saldo' => $r->saldo ?? 0,
+                    'semaforo' => $r->semaforo,
+                    'ult_impago' => $r->ult_impago,
+                    'acceso_full' => (int)($r->acceso_full ?? 0) ? 1 : 0,
+                    'hab_controles' => $r->hab_controles,
+                    'raw' => $r->raw,
+                    'created_at' => $r->created_at ?? now(),
                     'updated_at' => now(),
                 ];
             }
@@ -113,28 +65,18 @@ class PullAlumnosFromVmServer extends Command
                 $upserts += count($payload);
 
                 if (!$dryRun) {
-                    // ✅ OJO: acá escribimos en la DB local (vmpiletas_db) porque es la conexión default
-                    DB::table('users')->upsert(
+                    DB::table('socios_padron')->upsert(
                         $payload,
                         ['dni'],
-                        [
-                            'nombre','apellido','telefono','email',
-                            'tipo_usuario','tipo_cliente','activo',
-                            'socio_sid','socio_barcode',
-                            'updated_at'
-                        ]
+                        ['sid','apynom','barcode','saldo','semaforo','ult_impago','acceso_full','hab_controles','raw','updated_at']
                     );
                 }
             }
 
-            $this->line("Avance: lastId={$lastId} | upserts={$upserts} | sinDni={$saltadosSinDni}");
+            $this->line("Avance: lastId={$lastId} | upserts={$upserts}");
         }
 
-        $this->newLine();
-        $this->info("Listo.");
-        $this->line("Upserts: {$upserts}");
-        $this->line("Saltados sin DNI: {$saltadosSinDni}");
-
+        $this->info("Listo. Upserts: {$upserts}");
         return self::SUCCESS;
     }
 }
