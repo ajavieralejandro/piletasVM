@@ -9,24 +9,38 @@ class PullAlumnosFromVmServer extends Command
 {
     protected $signature = 'vmserver:pull-alumnos
         {--chunk=1000}
-        {--solo-activos=1}
-        {--dry-run : No escribe, solo muestra conteos}';
+        {--dry-run : No escribe, solo muestra conteos}
+        {--solo-con-estado=0 : Filtra solo si estado_socio NO es null/vacio (opcional)}';
 
-    protected $description = 'Trae users tipo cliente desde vmserver_db hacia vmpiletas_db (upsert por dni).';
+    protected $description = 'Trae usuarios desde vmserver_db.users hacia vmpiletas_db.users (upsert por dni).';
 
     public function handle(): int
     {
         $chunk = (int) $this->option('chunk') ?: 1000;
-        $soloActivos = (string) $this->option('solo-activos') === '1';
         $dryRun = (bool) $this->option('dry-run');
+        $soloConEstado = (string) $this->option('solo-con-estado') === '1';
 
-        $this->info("Pull alumnos desde vmserver_db -> piletas. chunk={$chunk}, soloActivos=" . ($soloActivos ? 'SI' : 'NO') . ", dryRun=" . ($dryRun ? 'SI' : 'NO'));
+        $this->info("Pull desde vmserver_db -> piletas. chunk={$chunk}, soloConEstado=" . ($soloConEstado ? 'SI' : 'NO') . ", dryRun=" . ($dryRun ? 'SI' : 'NO'));
 
+        // ✅ ORIGEN: vmserver_db.users (conexion 'usuarios')
+        // No existe tipo_usuario ni activo en origen, así que NO filtramos por eso.
         $q = DB::connection('usuarios')->table('users')
-            ->where('tipo_usuario', 'cliente');
+            ->select([
+                'id',
+                'dni',
+                'nombre',
+                'apellido',
+                'telefono',
+                'email',
+                'socio_id',
+                'barcode',
+                'estado_socio',
+            ])
+            ->whereNotNull('dni')
+            ->where('dni', '<>', '');
 
-        if ($soloActivos) {
-            $q->where('activo', 1);
+        if ($soloConEstado) {
+            $q->whereNotNull('estado_socio')->where('estado_socio', '<>', '');
         }
 
         $total = (clone $q)->count();
@@ -56,18 +70,38 @@ class PullAlumnosFromVmServer extends Command
                     continue;
                 }
 
+                $nombre = trim((string)($r->nombre ?? ''));
+                $apellido = trim((string)($r->apellido ?? ''));
+
+                // fallback por si vienen vacíos
+                if ($nombre === '' && $apellido === '') {
+                    $nombre = 'Socio';
+                    $apellido = $dni;
+                }
+
                 $payload[] = [
+                    // clave
                     'dni' => $dni,
-                    'nombre' => $r->nombre ?? '',
-                    'apellido' => $r->apellido ?? '',
+
+                    // datos básicos
+                    'nombre' => $nombre,
+                    'apellido' => $apellido,
                     'telefono' => $r->telefono ?? '',
                     'email' => $r->email ?? null,
-                    'tipo_usuario' => 'cliente',
-                    'tipo_cliente' => $r->tipo_cliente ?? 'normal',
-                    'activo' => (bool)($r->activo ?? 1),
 
-                    // En piletas NO necesitamos la password real.
-                    // Si querés login en piletas, definimos otra estrategia.
+                    // ✅ DESTINO (piletas) define "alumno"
+                    'tipo_usuario' => 'cliente',
+                    'tipo_cliente' => 'normal',
+                    'activo' => true,
+
+                    // ✅ puente para tus campos padron en piletas (ya los tenés)
+                    'socio_sid' => $r->socio_id !== null ? (string)$r->socio_id : null,
+                    'socio_barcode' => $r->barcode !== null ? (string)$r->barcode : null,
+
+                    // opcional: si querés guardar algo del estado (no lo estamos usando)
+                    // 'socio_hab_controles' => null,
+
+                    // password local (no copiamos la del origen)
                     'password' => bcrypt($dni),
 
                     'created_at' => now(),
@@ -79,10 +113,16 @@ class PullAlumnosFromVmServer extends Command
                 $upserts += count($payload);
 
                 if (!$dryRun) {
+                    // ✅ OJO: acá escribimos en la DB local (vmpiletas_db) porque es la conexión default
                     DB::table('users')->upsert(
                         $payload,
                         ['dni'],
-                        ['nombre','apellido','telefono','email','tipo_usuario','tipo_cliente','activo','updated_at']
+                        [
+                            'nombre','apellido','telefono','email',
+                            'tipo_usuario','tipo_cliente','activo',
+                            'socio_sid','socio_barcode',
+                            'updated_at'
+                        ]
                     );
                 }
             }
