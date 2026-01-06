@@ -42,6 +42,19 @@ return [
             'synchronous' => null,
             'transaction_mode' => 'DEFERRED',
         ],
+        'usuarios' => [
+    'driver' => 'mysql',
+    'host' => env('USUARIOS_DB_HOST', '127.0.0.1'),
+    'port' => env('USUARIOS_DB_PORT', '3306'),
+    'database' => env('USUARIOS_DB_DATABASE', 'vmserver_db'),
+    'username' => env('USUARIOS_DB_USERNAME', 'forge'),
+    'password' => env('USUARIOS_DB_PASSWORD', ''),
+    'charset' => 'utf8mb4',
+    'collation' => 'utf8mb4_unicode_ci',
+    'prefix' => '',
+    'strict' => true,
+    'engine' => null,
+],
 
         'mysql' => [
             'driver' => 'mysql',
