@@ -14,35 +14,30 @@ class SyncAlumnosDesdePadron extends Command
         {--crear : Crea el alumno si no existe (usa apynom)}
     ';
 
-    protected $description = 'Sincroniza datos de socios_padron hacia users (alumnos) y calcula flags de pileta/gym.';
+    protected $description = 'Sincroniza SOLO socios con control 201 (pileta) desde socios_padron hacia users (alumnos).';
 
     public function handle(): int
     {
         $chunk = (int) $this->option('chunk') ?: 500;
 
         $soloExistentes = true;
-        if ($this->option('crear')) {
-            $soloExistentes = false;
-        }
-        if ($this->option('solo-existentes')) {
-            $soloExistentes = true;
-        }
+        if ($this->option('crear')) $soloExistentes = false;
+        if ($this->option('solo-existentes')) $soloExistentes = true;
 
         $creados = 0;
         $actualizados = 0;
-        $conPileta = 0;
-        $conGym = 0;
 
-        $this->info("Sync alumnos desde padrón (chunk={$chunk})...");
+        $procesados = 0;
+        $ignoradosNoPileta = 0;
+
+        $this->info("Sync alumnos desde padrón (SOLO PILETA=201) chunk={$chunk}");
         $this->info($soloExistentes ? "Modo: SOLO actualizar existentes" : "Modo: crear si no existe");
 
         SocioPadron::query()
             ->orderBy('id')
-            ->chunk($chunk, function ($socios) use (&$creados, &$actualizados, &$conPileta, &$conGym, $soloExistentes) {
+            ->chunk($chunk, function ($socios) use (&$creados, &$actualizados, &$procesados, &$ignoradosNoPileta, $soloExistentes) {
 
                 foreach ($socios as $socio) {
-
-                    $dni = (string) $socio->dni;
 
                     // normalizar hab_controles: puede venir NULL, "201", "201,202"
                     $hab = $socio->hab_controles;
@@ -50,9 +45,17 @@ class SyncAlumnosDesdePadron extends Command
                     $codes = $hab ? array_values(array_filter(array_map('trim', explode(',', $hab)))) : [];
 
                     $tiene201 = in_array('201', $codes, true);
-                    $tiene202 = in_array('202', $codes, true);
 
-                    // buscar alumno existente por DNI
+                    // ✅ este servidor es de pileta: solo nos interesa 201
+                    if (!$tiene201) {
+                        $ignoradosNoPileta++;
+                        continue;
+                    }
+
+                    $procesados++;
+
+                    $dni = (string) $socio->dni;
+
                     $user = User::query()
                         ->where('tipo_usuario', 'cliente')
                         ->where('dni', $dni)
@@ -63,7 +66,6 @@ class SyncAlumnosDesdePadron extends Command
                             continue;
                         }
 
-                        // Crear alumno a partir de apynom "APELLIDO NOMBRE ..."
                         $apynom = trim((string) $socio->apynom);
                         [$apellido, $nombre] = $this->splitApellidoNombre($apynom);
 
@@ -86,8 +88,8 @@ class SyncAlumnosDesdePadron extends Command
                         'socio_sid' => (string) $socio->sid,
                         'socio_barcode' => (string) $socio->barcode,
                         'socio_hab_controles' => $hab,
-                        'tiene_pileta' => $tiene201,
-                        'tiene_gym' => $tiene202,
+                        'tiene_pileta' => true,
+                        'tiene_gym' => in_array('202', $codes, true), // info extra útil, pero opcional
                         'padron_synced_at' => now(),
                     ]);
 
@@ -95,26 +97,21 @@ class SyncAlumnosDesdePadron extends Command
                     $user->save();
 
                     if ($dirty) $actualizados++;
-
-                    if ($tiene201) $conPileta++;
-                    if ($tiene202) $conGym++;
                 }
             });
 
         $this->newLine();
-        $this->info("Listo.");
+        $this->info("Listo (solo pileta).");
+        $this->line("Procesados (con 201): {$procesados}");
+        $this->line("Ignorados (sin 201): {$ignoradosNoPileta}");
         $this->line("Creados: {$creados}");
         $this->line("Actualizados: {$actualizados}");
-        $this->line("Con pileta (201): {$conPileta}");
-        $this->line("Con gym (202): {$conGym}");
 
         return self::SUCCESS;
     }
 
     private function splitApellidoNombre(string $apynom): array
     {
-        // Heurística simple: primer token = apellido, resto = nombre
-        // Si querés, lo refinamos después.
         $parts = preg_split('/\s+/', trim($apynom)) ?: [];
         if (count($parts) === 0) return ['', ''];
         if (count($parts) === 1) return [$parts[0], ''];
