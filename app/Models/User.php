@@ -23,6 +23,14 @@ class User extends Authenticatable
         'tipo_usuario',
         'tipo_cliente',
         'activo',
+
+        // ✅ Padron Socios (bridge)
+        'socio_sid',
+        'socio_barcode',
+        'socio_hab_controles',
+        'tiene_pileta',
+        'tiene_gym',
+        'padron_synced_at',
     ];
 
     protected $hidden = [
@@ -30,8 +38,9 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-
-    protected $appends = ['nombre_completo'];  // ← ESTA ES LA LÍNEA NUEVA
+    protected $appends = [
+        'nombre_completo',
+    ];
 
     protected function casts(): array
     {
@@ -39,6 +48,11 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'activo' => 'boolean',
+
+            // ✅ Padron Socios
+            'tiene_pileta' => 'boolean',
+            'tiene_gym' => 'boolean',
+            'padron_synced_at' => 'datetime',
         ];
     }
 
@@ -48,12 +62,22 @@ class User extends Authenticatable
         return "{$this->nombre} {$this->apellido}";
     }
 
-    // Relaciones
+    // ======================
+    // Relaciones como Profesor
+    // ======================
     public function turnosComoProfesor()
     {
         return $this->hasMany(Turno::class, 'profesor_id');
     }
 
+    public function cambiosNivelSugeridos()
+    {
+        return $this->hasMany(CambioNivel::class, 'sugerido_por');
+    }
+
+    // ======================
+    // Relaciones como Alumno
+    // ======================
     public function inscripciones()
     {
         return $this->hasMany(Inscripcion::class, 'alumno_id');
@@ -84,7 +108,9 @@ class User extends Authenticatable
         return $this->hasMany(PaseLibreDiario::class, 'alumno_id');
     }
 
+    // ======================
     // Scopes
+    // ======================
     public function scopeActivos($query)
     {
         return $query->where('activo', true);
@@ -105,7 +131,14 @@ class User extends Authenticatable
         return $query->where('tipo_cliente', 'pase_libre');
     }
 
+    public function scopeNormales($query)
+    {
+        return $query->where('tipo_cliente', 'normal');
+    }
+
+    // ======================
     // Métodos de verificación
+    // ======================
     public function esProfesor()
     {
         return $this->tipo_usuario === 'profesor';
@@ -129,5 +162,44 @@ class User extends Authenticatable
     public function tienePaseLibre()
     {
         return $this->tipo_cliente === 'pase_libre';
+    }
+
+    // ======================
+    // Padron helpers (opcional pero útil)
+    // ======================
+    public function padronControlesCodes(): array
+    {
+        $s = trim((string) ($this->socio_hab_controles ?? ''));
+
+        if ($s === '') return [];
+
+        // viene con comillas tipo: "201,202"
+        $s = str_replace('"', '', $s);
+
+        return array_values(array_filter(array_map('trim', explode(',', $s))));
+    }
+
+    public function padronTieneControl(string|int $code): bool
+    {
+        $code = (string) $code;
+        return in_array($code, $this->padronControlesCodes(), true);
+    }
+
+    // ======================
+    // Booted
+    // ======================
+    protected static function booted()
+    {
+        static::created(function ($user) {
+            // Si es un cliente, crear su estado de cuenta
+            if ($user->tipo_usuario === 'cliente') {
+                // Evitar duplicados por si algo raro ocurre
+                if (!$user->estadoCuenta()->exists()) {
+                    $user->estadoCuenta()->create([
+                        'saldo' => 0,
+                    ]);
+                }
+            }
+        });
     }
 }
