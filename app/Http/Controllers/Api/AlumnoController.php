@@ -10,23 +10,39 @@ use Illuminate\Validation\Rule;
 
 class AlumnoController extends Controller
 {
-    public function index(Request $request)
-    {
-        $query = User::where('tipo_usuario', 'cliente');
+  public function index(Request $request)
+{
+    $query = User::where('tipo_usuario', 'cliente');
 
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('nombre', 'like', "%{$search}%")
-                  ->orWhere('apellido', 'like', "%{$search}%")
-                  ->orWhere('dni', 'like', "%{$search}%");
-            });
-        }
-
-        $alumnos = $query->orderBy('apellido')->orderBy('nombre')->get();
-
-        return response()->json(['success' => true, 'data' => $alumnos]);
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function ($q) use ($search) {
+            $q->where('nombre', 'like', "%{$search}%")
+              ->orWhere('apellido', 'like', "%{$search}%")
+              ->orWhere('dni', 'like', "%{$search}%");
+        });
     }
+
+    $perPage = (int) $request->input('per_page', 20);
+    $perPage = max(1, min($perPage, 100)); // tope para que no pidan 5000
+
+    $alumnos = $query
+        ->orderBy('apellido')
+        ->orderBy('nombre')
+        ->paginate($perPage);
+
+    return response()->json([
+        'success' => true,
+        'data' => $alumnos->items(),
+        'meta' => [
+            'current_page' => $alumnos->currentPage(),
+            'last_page'    => $alumnos->lastPage(),
+            'per_page'     => $alumnos->perPage(),
+            'total'        => $alumnos->total(),
+        ],
+    ]);
+}
+
 
     public function store(Request $request)
     {
